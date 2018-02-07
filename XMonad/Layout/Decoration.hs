@@ -70,12 +70,15 @@ decoration s t ds = ModifiedLayout (Decoration (I Nothing) s t ds)
 data Theme =
     Theme { activeColor        :: String                   -- ^ Color of the active window
           , inactiveColor       :: String                   -- ^ Color of the inactive window
+          , unmappedColor       :: String
           , urgentColor         :: String                   -- ^ Color of the urgent window
           , activeBorderColor   :: String                   -- ^ Color of the border of the active window
           , inactiveBorderColor :: String                   -- ^ Color of the border of the inactive window
           , urgentBorderColor   :: String                   -- ^ Color of the border of the urgent window
+          , unmappedBorderColor :: String
           , activeTextColor     :: String                   -- ^ Color of the text of the active window
           , inactiveTextColor   :: String                   -- ^ Color of the text of the inactive window
+          , unmappedTextColor   :: String
           , urgentTextColor     :: String                   -- ^ Color of the text of the urgent window
           , fontName            :: String                   -- ^ Font name
           , decoWidth           :: Dimension                -- ^ Maximum width of the decorations (if supported by the 'DecorationStyle')
@@ -90,12 +93,15 @@ instance Default Theme where
   def =
     Theme { activeColor         = "#999999"
           , inactiveColor       = "#666666"
+          , unmappedColor       = "#555555"
           , urgentColor         = "#FFFF00"
           , activeBorderColor   = "#FFFFFF"
           , inactiveBorderColor = "#BBBBBB"
+          , unmappedBorderColor = "#BBBBBB"
           , urgentBorderColor   = "##00FF00"
           , activeTextColor     = "#FFFFFF"
           , inactiveTextColor   = "#BFBFBF"
+          , unmappedTextColor   = "#BFBFBF"
           , urgentTextColor     = "#FF0000"
           , fontName            = "-misc-fixed-*-*-*-*-10-*-*-*-*-*-*-*"
           , decoWidth           = 200
@@ -390,14 +396,21 @@ updateDeco sh t fs ((w,_),(Just dw,Just (Rectangle _ _ wh ht))) = do
   nw  <- getName w
   ur  <- readUrgents
   dpy <- asks display
-  let focusColor win ic ac uc = (maybe ic (\focusw -> case () of
-                                                       _ | focusw == win -> ac
-                                                         | win `elem` ur -> uc
-                                                         | otherwise     -> ic) . W.peek)
-                                `fmap` gets windowset
+  let isMapped win =
+        catchX (fmap ((== waIsViewable) . wa_map_state) $ io $ getWindowAttributes dpy win) (return False)
+
+  let focusColor win ic ac uc unmc =
+        do mapped <- isMapped win
+           (maybe ic (\focusw -> case () of
+                                   _ | focusw == win -> ac
+                                     | win `elem` ur -> uc
+                                     | not mapped    -> unmc
+                                     | otherwise     -> ic) . W.peek)
+             `fmap` gets windowset
   (bc,borderc,tc) <- focusColor w (inactiveColor t, inactiveBorderColor t, inactiveTextColor t)
                                   (activeColor   t, activeBorderColor   t, activeTextColor   t)
                                   (urgentColor   t, urgentBorderColor   t, urgentTextColor   t)
+                                  (unmappedColor t, unmappedBorderColor t, unmappedTextColor t)
   let s = shrinkIt sh
   name <- shrinkWhile s (\n -> do size <- io $ textWidthXMF dpy fs n
                                   return $ size > fromIntegral wh - fromIntegral (ht `div` 2)) (show nw)
@@ -406,6 +419,7 @@ updateDeco sh t fs ((w,_),(Just dw,Just (Rectangle _ _ wh ht))) = do
       i_als = map snd (windowTitleIcons t)
       icons = map fst (windowTitleIcons t)
   paintTextAndIcons dw fs wh ht 1 bc borderc tc bc als strs i_als icons
+
 updateDeco _ _ _ (_,(Just w,Nothing)) = hideWindow w
 updateDeco _ _ _ _ = return ()
 
